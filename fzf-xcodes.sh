@@ -49,6 +49,11 @@ function fzf-xcodes() {
     return 0
   }
 
+  # `xcodes list` (2.x) appends an architecture note; keep only version lines
+  local __xcodes_list() {
+    xcodes list | sed '/^Showing Xcodes for this Mac/d; /^[[:space:]]*$/d'
+  }
+
   local __extract_version() {
     local version=$1
     [[ -z "$version" || "$version" =~ ^[[:space:]]*$ ]] && return 1
@@ -65,19 +70,28 @@ function fzf-xcodes() {
     local options=$(xcodes installed | sort -nr | sed "s/Installed/$(tput setaf 4)&$(tput sgr0)/g" | sed "s/Selected/$(tput setaf 2)&$(tput sgr0)/g")
     local version=$(echo $options | fzf --ansi --prompt="xcodes select > ")
     local version_only=$(__extract_version "$version")
-    xcodes install "$version_only"
+    [ -z "$version_only" ] && return 1
+    if ! sudo xcodes select "$version_only"; then
+      echo "$(tput setaf 1)Failed to select Xcode $version_only$(tput sgr0)"
+      return 1
+    fi
     local installed_path=$(xcodes installed | grep 'Selected' | grep -o '/Applications.*')
     local app_path="/Applications/Xcode.app"
-    if [ -L $app_path ]; then
-        rm -rf $app_path
+    if [ -z "$installed_path" ] || [ "$installed_path" = "$app_path" ]; then
+      echo "$(tput setaf 3)Skipped updating $app_path (selected path: ${installed_path:-none})$(tput sgr0)"
+      return 0
     fi
-    ln -s "$installed_path" "$app_path"
+    if [ -e "$app_path" ] && [ ! -L "$app_path" ]; then
+      echo "$(tput setaf 3)Skipped updating $app_path because it is not a symbolic link$(tput sgr0)"
+      return 0
+    fi
+    sudo ln -sfn "$installed_path" "$app_path"
     echo "$(tput setaf 2)A symbolic link has been created to $app_path$(tput sgr0)"
     return 0
   }
 
   local fzf-xcodes-list() {
-    local options=$(xcodes list | sort -nr | sed "s/Installed/$(tput setaf 4)&$(tput sgr0)/g" | sed "s/Selected/$(tput setaf 2)&$(tput sgr0)/g")
+    local options=$(__xcodes_list | sort -nr | sed "s/Installed/$(tput setaf 4)&$(tput sgr0)/g" | sed "s/Selected/$(tput setaf 2)&$(tput sgr0)/g")
     local version=$(echo $options | fzf --ansi --prompt="xcodes list > ")
     if command -v pbcopy &>/dev/null; then
       echo -n "$version" | pbcopy
@@ -89,7 +103,7 @@ function fzf-xcodes() {
   }
 
   local fzf-xcodes-download() {
-    local options=$(xcodes list | sort -nr | sed "s/Installed/$(tput setaf 4)&$(tput sgr0)/g" | sed "s/Selected/$(tput setaf 2)&$(tput sgr0)/g")
+    local options=$(__xcodes_list | sort -nr | sed "s/Installed/$(tput setaf 4)&$(tput sgr0)/g" | sed "s/Selected/$(tput setaf 2)&$(tput sgr0)/g")
     local version=$(echo $options | fzf --ansi --prompt="xcodes download > ")
     local version_only=$(__extract_version "$version")
     echo "version_only: $version_only"
@@ -98,7 +112,7 @@ function fzf-xcodes() {
   }
 
   local fzf-xcodes-install() {
-    local options=$(xcodes list | sort -nr | sed "s/Installed/$(tput setaf 4)&$(tput sgr0)/g" | sed "s/Selected/$(tput setaf 2)&$(tput sgr0)/g")
+    local options=$(__xcodes_list | sort -nr | sed "s/Installed/$(tput setaf 4)&$(tput sgr0)/g" | sed "s/Selected/$(tput setaf 2)&$(tput sgr0)/g")
     local version=$(echo $options | fzf --ansi --prompt="xcodes install > ")
     local version_only=$(__extract_version "$version")
     echo "version_only: $version_only"
